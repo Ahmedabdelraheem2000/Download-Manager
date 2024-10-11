@@ -4,24 +4,26 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video Downloader</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body>
-    <div>
+    <div class="container">
+        <h1>Video Downloader</h1>
         <label for="url">Video URL:</label>
         <input type="text" id="url" placeholder="Enter video URL">
         <button onclick="loadFormats()">Get Formats</button>
-    </div>
 
-    <div id="formats" style="display:none;">
-        <label for="quality">Select Quality:</label>
-        <select id="quality"></select>
-        <button onclick="startDownload()">Download</button>
-    </div>
+        <div id="formats" style="display:none;">
+            <label for="quality">Select Quality:</label>
+            <select id="quality"></select>
+            <button onclick="startDownload()">Download</button>
+        </div>
 
-    <div id="progress" style="display:none;">
-        <p id="download_status">Waiting to start...</p>
-        <div style="width: 100%; background-color: #ddd;">
-            <div id="progressBar" style="width: 0%; height: 30px; background-color: green;"></div>
+        <div id="progress" style="display:none;">
+            <p id="download_status">Waiting to start...</p>
+            <div style="width: 100%; background-color: #ddd;">
+                <div id="progressBar" style="width: 0%; height: 30px; background-color: green;"></div>
+            </div>
         </div>
     </div>
 
