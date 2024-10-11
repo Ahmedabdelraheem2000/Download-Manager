@@ -3,76 +3,67 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>تحميل الفيديو</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
-    <title>Video Downloader</title>
-</head>
-<body>
-    <div class="container">
-        <h1>Video Downloader</h1>
-        <label for="url">Enter Video URL:</label>
-        <input type="text" id="url" placeholder="ادخل رابط الفيديو" />
-        <button id="load_formats">Load Formats</button>
-
-        <h2>Select Video Quality:</h2>
-        <div id="quality_options"></div>
-
-        <button id="download_button">Download</button>
-
-        <p id="status_message"></p>
-    </div>
-
+    <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
     <script>
-        document.getElementById('load_formats').addEventListener('click', function() {
-            const url = document.getElementById('url').value;
+        var socket = io();
+
+        function loadFormats() {
+            const url = document.getElementById('video-url').value;
+
             fetch('/load_formats', {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json',
+                    'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({ url: url })
             })
             .then(response => response.json())
             .then(data => {
-                const qualityOptions = document.getElementById('quality_options');
-                qualityOptions.innerHTML = '';  // مسح الخيارات السابقة
-                if (data.formats.length === 0) {
-                    qualityOptions.innerHTML = '<p>No formats available</p>';
-                    return;
-                }
-                data.formats.forEach(format => {
-                    const radioButton = document.createElement('input');
-                    radioButton.type = 'radio';
-                    radioButton.name = 'quality';
-                    radioButton.value = format.height;
-                    const label = document.createElement('label');
-                    label.innerText = format.height + 'p';
-                    qualityOptions.appendChild(radioButton);
-                    qualityOptions.appendChild(label);
-                });
-            });
-        });
+                const qualitySelect = document.getElementById('video-quality');
+                qualitySelect.innerHTML = ''; // تفريغ الجودات السابقة
 
-        document.getElementById('download_button').addEventListener('click', function() {
-            const url = document.getElementById('url').value;
-            const quality = document.querySelector('input[name="quality"]:checked').value;
-
-            fetch('/download_video', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ url: url, quality: quality })
-            })
-            .then(response => response.json())
-            .then(data => {
-                const statusMessage = document.getElementById('status_message');
-                if (data.status === 'success') {
-                    statusMessage.innerText = 'Video downloaded successfully! Saved at: ' + data.path;
+                if (data.formats) {
+                    data.formats.forEach(format => {
+                        const option = document.createElement('option');
+                        option.value = format.height;
+                        option.textContent = `${format.height}p`;
+                        qualitySelect.appendChild(option);
+                    });
                 } else {
-                    statusMessage.innerText = 'Failed to download the video.';
+                    alert(data.error);
                 }
-            });
+            })
+            .catch(error => console.error('Error:', error));
+        }
+
+        function startDownload() {
+            const url = document.getElementById('video-url').value;
+            const quality = document.getElementById('video-quality').value;
+            const videoId = Date.now(); // استخدم الوقت الحالي كمعرف الفيديو
+
+            socket.emit('start_download', { url: url, quality: quality, video_id: videoId });
+        }
+
+        socket.on('download_status', function(data) {
+            const statusDiv = document.getElementById('download-status');
+            if (data.status === 'downloading') {
+                statusDiv.textContent = `تحميل الفيديو: ${data.percent.toFixed(2)}%`;
+            } else if (data.status === 'success') {
+                statusDiv.textContent = 'تم تحميل الفيديو بنجاح!';
+            } else {
+                statusDiv.textContent = 'حدث خطأ أثناء تحميل الفيديو.';
+            }
         });
     </script>
+</head>
+<body>
+    <h1>تحميل الفيديو</h1>
+    <input type="text" id="video-url" placeholder="أدخل رابط الفيديو" required>
+    <button onclick="loadFormats()">تحميل الجودات المتاحة</button>
+    <select id="video-quality"></select>
+    <button onclick="startDownload()">ابدأ التحميل</button>
+    <div id="download-status"></div>
 </body>
 </html>
