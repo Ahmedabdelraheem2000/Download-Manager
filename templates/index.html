@@ -1,69 +1,78 @@
 <!DOCTYPE html>
-<html lang="ar">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>تحميل الفيديو</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
-    <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+    <title>Video Downloader</title>
+</head>
+<body>
+    <div>
+        <label for="url">Video URL:</label>
+        <input type="text" id="url" placeholder="Enter video URL">
+        <button onclick="loadFormats()">Get Formats</button>
+    </div>
+
+    <div id="formats" style="display:none;">
+        <label for="quality">Select Quality:</label>
+        <select id="quality"></select>
+        <button onclick="startDownload()">Download</button>
+    </div>
+
+    <div id="progress" style="display:none;">
+        <p id="download_status">Waiting to start...</p>
+        <div style="width: 100%; background-color: #ddd;">
+            <div id="progressBar" style="width: 0%; height: 30px; background-color: green;"></div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <script>
         var socket = io();
+        var videoId = Math.random().toString(36).substring(7); // generate a random video ID
 
         function loadFormats() {
-            const url = document.getElementById('video-url').value;
-
-            fetch('/load_formats', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ url: url })
-            })
-            .then(response => response.json())
-            .then(data => {
-                const qualitySelect = document.getElementById('video-quality');
-                qualitySelect.innerHTML = ''; // تفريغ الجودات السابقة
-
-                if (data.formats) {
-                    data.formats.forEach(format => {
-                        const option = document.createElement('option');
-                        option.value = format.height;
-                        option.textContent = `${format.height}p`;
-                        qualitySelect.appendChild(option);
-                    });
-                } else {
-                    alert(data.error);
-                }
-            })
-            .catch(error => console.error('Error:', error));
+            var url = document.getElementById('url').value;
+            socket.emit('load_formats', {url: url});
         }
 
-        function startDownload() {
-            const url = document.getElementById('video-url').value;
-            const quality = document.getElementById('video-quality').value;
-            const videoId = Date.now(); // استخدم الوقت الحالي كمعرف الفيديو
+        socket.on('formats_loaded', function(data) {
+            var formats = data.formats;
+            var qualitySelect = document.getElementById('quality');
+            qualitySelect.innerHTML = '';
 
-            socket.emit('start_download', { url: url, quality: quality, video_id: videoId });
+            formats.forEach(function(format) {
+                var option = document.createElement('option');
+                option.value = format.height;
+                option.textContent = format.height + 'p';
+                qualitySelect.appendChild(option);
+            });
+
+            document.getElementById('formats').style.display = 'block';
+        });
+
+        function startDownload() {
+            var url = document.getElementById('url').value;
+            var quality = document.getElementById('quality').value;
+
+            socket.emit('start_download', {url: url, quality: quality, video_id: videoId});
+            document.getElementById('progress').style.display = 'block';
         }
 
         socket.on('download_status', function(data) {
-            const statusDiv = document.getElementById('download-status');
-            if (data.status === 'downloading') {
-                statusDiv.textContent = `تحميل الفيديو: ${data.percent.toFixed(2)}%`;
-            } else if (data.status === 'success') {
-                statusDiv.textContent = 'تم تحميل الفيديو بنجاح!';
-            } else {
-                statusDiv.textContent = 'حدث خطأ أثناء تحميل الفيديو.';
+            if (data.video_id === videoId) {
+                var status = data.status;
+                if (status === 'downloading') {
+                    var percent = data.percent.toFixed(2);
+                    document.getElementById('download_status').textContent = 'Downloading... ' + percent + '%';
+                    document.getElementById('progressBar').style.width = percent + '%';
+                } else if (status === 'finished') {
+                    document.getElementById('download_status').textContent = 'Download complete!';
+                    document.getElementById('progressBar').style.width = '100%';
+                } else if (status === 'error') {
+                    document.getElementById('download_status').textContent = 'Error during download!';
+                }
             }
         });
     </script>
-</head>
-<body>
-    <h1>تحميل الفيديو</h1>
-    <input type="text" id="video-url" placeholder="أدخل رابط الفيديو" required>
-    <button onclick="loadFormats()">تحميل الجودات المتاحة</button>
-    <select id="video-quality"></select>
-    <button onclick="startDownload()">ابدأ التحميل</button>
-    <div id="download-status"></div>
 </body>
 </html>

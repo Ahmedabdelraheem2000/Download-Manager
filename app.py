@@ -1,30 +1,20 @@
 import os
 import yt_dlp
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, jsonify
 from flask_socketio import SocketIO
-import platform
 
 app = Flask(__name__)
-socketio = SocketIO(app)
+socketio = SocketIO(app, async_mode='eventlet')
 
-# قائمة الجودات المعروفة التي نريد عرضها فقط
+# قائمة الجودات المسموح بها
 ALLOWED_QUALITIES = [144, 240, 360, 480, 720, 1080, 1440, 2160]
-
 
 def get_download_folder():
     """احصل على مسار مجلد التنزيلات الخاص بالمستخدم"""
-    if platform.system() == "Windows":
-        download_folder = os.path.join(os.path.expanduser("~"), "Downloads")
-    elif platform.system() == "Darwin":  # نظام macOS
-        download_folder = os.path.join(os.path.expanduser("~"), "Downloads")
-    else:  # نظام Linux
-        download_folder = os.path.join(os.path.expanduser("~"), "Downloads")
-
-    return download_folder
-
+    return os.path.join(os.path.expanduser("~"), "Downloads")
 
 def get_video_formats(url):
-    """احصل على تنسيقات الفيديو المتاحة لعنوان URL المقدم"""
+    """احصل على تنسيقات الفيديو المتاحة لعنوان URL"""
     with yt_dlp.YoutubeDL() as ydl:
         info = ydl.extract_info(url, download=False)
         formats = info.get('formats', [])
@@ -36,62 +26,65 @@ def get_video_formats(url):
                 unique_formats[height] = fmt
 
         sorted_formats = sorted(unique_formats.values(), key=lambda x: x.get('height', 0))
-        return sorted_formats
-
+        return [{'height': fmt['height'], 'format_id': fmt['format_id']} for fmt in sorted_formats]
 
 def download_video(url, quality, video_id):
-    """تحميل الفيديو بالجودة المختارة دون تحويل"""
-    download_folder = get_download_folder()  # احصل على مجلد التنزيلات
+    """تحميل الفيديو بالجودة المختارة"""
+    download_folder = get_download_folder()  # مجلد التنزيلات
+    base_filename = os.path.join(download_folder, '%(title)s')  # اسم الملف بدون امتداد
+    extension = '.%(ext)s'  # الامتداد
+
+    # إعداد اسم الملف الجديد
+    original_filename = base_filename + extension  # اسم الملف الأصلي
+    new_filename = original_filename  # البداية بنفس الاسم الأصلي
+    count = 1
+
+    # تحقق مما إذا كان الملف موجودًا، وإذا كان موجودًا، أضف رقمًا
+    while os.path.exists(new_filename):
+        new_filename = f"{base_filename}({count}){extension}"  # أضف رقمًا إلى اسم الملف
+        count += 1
+
     video_opts = {
         'format': f'bestvideo[height<={quality}]+bestaudio/best',
-        'outtmpl': os.path.join(download_folder, '%(title)s.%(ext)s'),  # حفظ الملف في مجلد التنزيلات
+        'outtmpl': new_filename,  # استخدام الاسم الجديد
         'noplaylist': True,
         'progress_hooks': [lambda d: progress_hook(d, video_id)]
     }
 
     try:
         with yt_dlp.YoutubeDL(video_opts) as ydl:
-            ydl.download([url])  # تحميل الفيديو
-            socketio.emit('download_status', {'video_id': video_id, 'status': 'success'})  # إرسال تحديث الحالة
+            ydl.download([url])
+            socketio.emit('download_status', {'video_id': video_id, 'status': 'success'})
     except Exception as e:
         print(f"Error downloading video: {e}")
-        socketio.emit('download_status', {'video_id': video_id, 'status': 'error'})  # إرسال تحديث الحالة
-
+        socketio.emit('download_status', {'video_id': video_id, 'status': 'error'})
 
 def progress_hook(d, video_id):
-    """تحديث الحالة عند تحميل الفيديو"""
+    """تحديث حالة التحميل"""
     if d['status'] == 'downloading':
         percent = d.get('downloaded_bytes', 0) / d.get('total_bytes', 1) * 100
         socketio.emit('download_status', {'video_id': video_id, 'status': 'downloading', 'percent': percent})
+    elif d['status'] == 'finished':
+        socketio.emit('download_status', {'video_id': video_id, 'status': 'finished', 'percent': 100})
 
-
-@app.route('/')
-def index():
-    return render_template('index.html')
-
-
-@app.route('/load_formats', methods=['POST'])
-def load_formats():
-    """نقطة نهاية لتحميل تنسيقات الفيديو المتاحة"""
-    data = request.json
-    url = data.get('url', '')
-
-    if url:
-        formats = get_video_formats(url)
-        return jsonify({'formats': formats}), 200
-    else:
-        return jsonify({'error': 'URL is required'}), 400
-
+@socketio.on('load_formats')
+def handle_load_formats(data):
+    url = data['url']
+    formats = get_video_formats(url)
+    socketio.emit('formats_loaded', {'formats': formats})
 
 @socketio.on('start_download')
 def handle_download(data):
     url = data['url']
     quality = data['quality']
-    video_id = data['video_id']  # استخدم معرف الفيديو المرسل
+    video_id = data['video_id']
 
-    # بدء تحميل الفيديو في خيط جديد
-    socketio.start_background_task(download_video, url, quality, video_id)
+    # بدء تحميل الفيديو في مهمة خلفية باستخدام eventlet
+    socketio.start_background_task(target=download_video, url=url, quality=quality, video_id=video_id)
 
+@app.route('/')
+def index():
+    return render_template('index.html')
 
 if __name__ == '__main__':
-    socketio.run(app, host='0.0.0.0', port=8080)  # السماح بالوصول من جميع العناوين
+    socketio.run(app, host='127.0.0.1', port=8080)
