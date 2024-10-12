@@ -4,48 +4,48 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>تحميل الفيديو</title>
-    <script src="https://cdn.socket.io/4.3.2/socket.io.min.js"></script>
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.socket.io/4.4.1/socket.io.min.js"></script>
 </head>
 <body>
     <h1>تحميل الفيديو</h1>
-    <form id="videoForm">
-        <label for="url">رابط الفيديو:</label>
-        <input type="text" id="url" name="url" required><br><br>
-        <button type="submit">تحميل الفيديو</button>
-    </form>
-
-    <div id="status"></div>
+    <input type="text" id="url" placeholder="أدخل رابط الفيديو" />
+    <button onclick="downloadVideo()">تحميل الفيديو</button>
+    <p id="status"></p>
 
     <script>
-        var socket = io('http://127.0.0.1:5001');
+        const socket = io.connect('http://localhost:5001');  // الاتصال مع السيرفر
 
-        // استماع لحالة التحميل من السيرفر
+        // استقبال حالة التحميل
         socket.on('download_status', function(data) {
-            $('#status').html(data.status); // تحديث حالة التحميل
+            document.getElementById("status").innerHTML = data.status;
             if (data.filename) {
-                // تنزيل الفيديو مباشرة بعد اكتمال التحميل
-                var downloadLink = '/download_file/' + data.filename;
-                window.location.href = downloadLink; // هذا يقوم بتحميل الفيديو مباشرة
+                const downloadLink = `<a href="/download_file/${data.filename}" download>تحميل الملف</a>`;
+                document.getElementById("status").innerHTML += "<br>" + downloadLink;
             }
         });
 
-        // عند إرسال النموذج
-        $('#videoForm').submit(function(e) {
-            e.preventDefault();
-            var url = $('#url').val();
-
-            // إرسال الطلب إلى السيرفر عبر AJAX
-            $.ajax({
-                url: '/download',
-                method: 'POST',
-                contentType: 'application/json',
-                data: JSON.stringify({url: url}),
-                success: function(response) {
+        // إرسال رابط الفيديو لتحميله
+        function downloadVideo() {
+            const url = document.getElementById("url").value;
+            if (url) {
+                fetch('/download', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ 'url': url })
+                })
+                .then(response => response.json())
+                .then(data => {
                     console.log('تم إرسال الطلب');
-                }
-            });
-        });
+                })
+                .catch(error => {
+                    console.error('خطأ في إرسال الطلب:', error);
+                });
+            } else {
+                alert("الرجاء إدخال رابط الفيديو");
+            }
+        }
     </script>
 </body>
 </html>

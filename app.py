@@ -1,24 +1,28 @@
 import os
-from flask import Flask, render_template, request, jsonify, send_from_directory
+from flask import Flask, render_template, request, jsonify, Response
 from flask_socketio import SocketIO, emit
 import yt_dlp
+from eventlet import monkey_patch
+
+monkey_patch()
 
 app = Flask(__name__)
 
-# السماح بالاتصال من جميع المصادر (أو من مصدر معين)
-socketio = SocketIO(app, cors_allowed_origins="*")  # أو يمكنك استبدال "*" بـ "http://localhost:5001" لو أردت السماح فقط لهذا المصدر
+# السماح بالاتصال من جميع المصادر
+socketio = SocketIO(app, cors_allowed_origins="*")
 
-# مجلد التخزين المؤقت على السيرفر داخل مجلد المشروع
+# مجلد التخزين المؤقت
 DOWNLOAD_FOLDER = 'downloads'
 if not os.path.exists(DOWNLOAD_FOLDER):
     os.makedirs(DOWNLOAD_FOLDER)
 
-# دالة لتحميل الفيديو إلى السيرفر
+
+# دالة لتحميل الفيديو وإرسال التحديثات
 def download_video(url, progress_hook=None):
-    print("بدء التحميل من الرابط: ", url)  # سجل بداية التحميل
+    print("بدء التحميل من الرابط:", url)
     ydl_opts = {
         'format': 'bestvideo',
-        'outtmpl': os.path.join(DOWNLOAD_FOLDER, '%(title)s.%(ext)s'),  # وضع الفيديو في مجلد downloads
+        'outtmpl': os.path.join(DOWNLOAD_FOLDER, '%(title)s.%(ext)s'),
         'progress_hooks': [progress_hook] if progress_hook else [],
         'quiet': True,
     }
@@ -26,39 +30,46 @@ def download_video(url, progress_hook=None):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
     except Exception as e:
-        print("خطأ في التحميل: ", e)  # سجل أي خطأ يحدث أثناء التحميل
+        print("خطأ في التحميل:", e)
 
-# دالة لتحديث حالة التحميل
+
+# تحديث حالة التحميل
 def progress_hook(d):
     if d['status'] == 'finished':
         file_name = d['info_dict']['title'] + '.' + d['info_dict']['ext']
-        print(f"التحميل انتهى. الملف: {file_name}")  # سجل اسم الملف عند الانتهاء من التحميل
-        # إرسال رابط التحميل إلى العميل بعد الانتهاء من التحميل
-        socketio.emit('download_status', {'status': 'تم التحميل بنجاح', 'filename': file_name})
+        print(f"التحميل انتهى. الملف: {file_name}")
+        socketio.emit('download_status', {'status': 'التحميل مكتمل', 'filename': file_name})
     elif d['status'] == 'downloading':
-        # إرسال التحديثات الخاصة بحالة التحميل
         socketio.emit('download_status', {'status': f"جاري التحميل: {d['_percent_str']}"})
+
 
 # الصفحة الرئيسية
 @app.route('/')
 def index():
     return render_template('index.html')
 
-# رابط لتحميل الفيديو
+
+# بدء عملية التحميل
 @app.route('/download', methods=['POST'])
 def download():
     data = request.get_json()
     url = data['url']
-    # بدء التحميل في الخلفية
     socketio.start_background_task(download_video, url, progress_hook)
     return jsonify({'status': 'started'}), 200
 
-# تنزيل الملف بعد التحميل
+
+# إرسال الملف بعد التحميل
 @app.route('/download_file/<filename>')
 def download_file(filename):
-    file_path = os.path.join(DOWNLOAD_FOLDER, filename)
-    return send_from_directory(DOWNLOAD_FOLDER, filename, as_attachment=True)
+    def generate():
+        file_path = os.path.join(DOWNLOAD_FOLDER, filename)
+        with open(file_path, 'rb') as f:
+            while chunk := f.read(1024 * 1024):  # إرسال 1 ميجابايت في كل مرة
+                yield chunk
+
+    return Response(generate(), mimetype="video/mp4")
+
 
 # تشغيل السيرفر
 if __name__ == '__main__':
-    socketio.run(app, debug=True, port=5001)
+    socketio.run(app, debug=False, use_reloader=False, port=5001)
