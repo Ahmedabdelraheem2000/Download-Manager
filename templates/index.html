@@ -1,79 +1,50 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ar">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Video Downloader</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <title>تحميل الفيديو</title>
+    <script src="https://cdn.socket.io/4.3.2/socket.io.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 </head>
 <body>
-    <div class="container">
-        <h1>Video Downloader</h1>
-        <label for="url">Video URL:</label>
-        <input type="text" id="url" placeholder="Enter video URL">
-        <button onclick="loadFormats()">Get Formats</button>
+    <h1>تحميل الفيديو</h1>
+    <form id="videoForm">
+        <label for="url">رابط الفيديو:</label>
+        <input type="text" id="url" name="url" required><br><br>
+        <button type="submit">تحميل الفيديو</button>
+    </form>
 
-        <div id="formats" style="display:none;">
-            <label for="quality">Select Quality:</label>
-            <select id="quality"></select>
-            <button onclick="startDownload()">Download</button>
-        </div>
+    <div id="status"></div>
 
-        <div id="progress" style="display:none;">
-            <p id="download_status">Waiting to start...</p>
-            <div style="width: 100%; background-color: #ddd;">
-                <div id="progressBar" style="width: 0%; height: 30px; background-color: green;"></div>
-            </div>
-        </div>
-    </div>
-
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <script>
-        var socket = io();
-        var videoId = Math.random().toString(36).substring(7); // generate a random video ID
+        var socket = io('http://127.0.0.1:5001');
 
-        function loadFormats() {
-            var url = document.getElementById('url').value;
-            socket.emit('load_formats', {url: url});
-        }
-
-        socket.on('formats_loaded', function(data) {
-            var formats = data.formats;
-            var qualitySelect = document.getElementById('quality');
-            qualitySelect.innerHTML = '';
-
-            formats.forEach(function(format) {
-                var option = document.createElement('option');
-                option.value = format.height;
-                option.textContent = format.height + 'p';
-                qualitySelect.appendChild(option);
-            });
-
-            document.getElementById('formats').style.display = 'block';
+        // استماع لحالة التحميل من السيرفر
+        socket.on('download_status', function(data) {
+            $('#status').html(data.status); // تحديث حالة التحميل
+            if (data.filename) {
+                // تنزيل الفيديو مباشرة بعد اكتمال التحميل
+                var downloadLink = '/download_file/' + data.filename;
+                window.location.href = downloadLink; // هذا يقوم بتحميل الفيديو مباشرة
+            }
         });
 
-        function startDownload() {
-            var url = document.getElementById('url').value;
-            var quality = document.getElementById('quality').value;
+        // عند إرسال النموذج
+        $('#videoForm').submit(function(e) {
+            e.preventDefault();
+            var url = $('#url').val();
 
-            socket.emit('start_download', {url: url, quality: quality, video_id: videoId});
-            document.getElementById('progress').style.display = 'block';
-        }
-
-        socket.on('download_status', function(data) {
-            if (data.video_id === videoId) {
-                var status = data.status;
-                if (status === 'downloading') {
-                    var percent = data.percent.toFixed(2);
-                    document.getElementById('download_status').textContent = 'Downloading... ' + percent + '%';
-                    document.getElementById('progressBar').style.width = percent + '%';
-                } else if (status === 'finished') {
-                    document.getElementById('download_status').textContent = 'Download complete!';
-                    document.getElementById('progressBar').style.width = '100%';
-                } else if (status === 'error') {
-                    document.getElementById('download_status').textContent = 'Error during download!';
+            // إرسال الطلب إلى السيرفر عبر AJAX
+            $.ajax({
+                url: '/download',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({url: url}),
+                success: function(response) {
+                    console.log('تم إرسال الطلب');
                 }
-            }
+            });
         });
     </script>
 </body>
