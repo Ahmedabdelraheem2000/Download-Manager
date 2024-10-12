@@ -72,4 +72,4 @@ def download_file(filename):
 
 # تشغيل السيرفر
 if __name__ == '__main__':
-    socketio.run(app, debug=False, use_reloader=False, port=5001)
+    socketio.run(app, debug=False, use_reloader=False)
