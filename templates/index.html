@@ -8,23 +8,25 @@
 </head>
 <body>
     <h1>تحميل الفيديو</h1>
-    <input type="text" id="url" placeholder="أدخل رابط الفيديو" />
+    <input type="text" id="url" placeholder="أدخل رابط الفيديو">
     <button onclick="downloadVideo()">تحميل الفيديو</button>
     <p id="status"></p>
+    <div id="download-link"></div>
 
     <script>
-        const socket = io.connect('http://localhost:5001');  // الاتصال مع السيرفر
+        // الاتصال بـ Socket.IO
+        const socket = io.connect('http://localhost:5001'); // تأكد من استخدام البورت الصحيح
 
-        // استقبال حالة التحميل
+        // تلقي التحديثات من السيرفر
         socket.on('download_status', function(data) {
             document.getElementById("status").innerHTML = data.status;
-            if (data.filename) {
-                const downloadLink = `<a href="/download_file/${data.filename}" download>تحميل الملف</a>`;
-                document.getElementById("status").innerHTML += "<br>" + downloadLink;
+            if (data.file_url) {
+                const downloadLink = `<a href="${data.file_url}" download>تحميل الملف</a>`;
+                document.getElementById("download-link").innerHTML = downloadLink;
             }
         });
 
-        // إرسال رابط الفيديو لتحميله
+        // إرسال الطلب لتحميل الفيديو
         function downloadVideo() {
             const url = document.getElementById("url").value;
             if (url) {
