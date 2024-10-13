@@ -1,71 +1,78 @@
-# استدعاء eventlet.monkey_patch() قبل استيراد أي شيء آخر
-from eventlet import monkey_patch
-monkey_patch()
-
-# الآن استيراد باقي الحزم
+from flask import Flask, request, send_from_directory, jsonify, render_template
 import os
-from flask import Flask, render_template, request, jsonify, send_from_directory
-from flask_socketio import SocketIO, emit
 import yt_dlp
+from threading import Thread
+import time
+import shutil
 
 app = Flask(__name__)
+UPLOAD_FOLDER = 'downloads'
+MAX_SIZE = 1 * 1024 * 1024 * 1024  # 1 جيجابايت
 
-# السماح بالاتصال من جميع المصادر (أو من مصدر معين)
-socketio = SocketIO(app, cors_allowed_origins="*")  # أو يمكنك استبدال "*" بـ "http://localhost:5001" لو أردت السماح فقط لهذا المصدر
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
 
-# مجلد التخزين المؤقت على السيرفر داخل مجلد المشروع
-DOWNLOAD_FOLDER = 'downloads'
-if not os.path.exists(DOWNLOAD_FOLDER):
-    os.makedirs(DOWNLOAD_FOLDER)
 
-# دالة لتحميل الفيديو إلى السيرفر
-def download_video(url, progress_hook=None):
-    print("بدء التحميل من الرابط: ", url)  # سجل بداية التحميل
+# وظيفة لتحميل الفيديو
+def download_video(url):
     ydl_opts = {
-        'format': 'bestvideo',
-        'outtmpl': os.path.join(DOWNLOAD_FOLDER, '%(title)s.%(ext)s'),  # وضع الفيديو في مجلد downloads
-        'progress_hooks': [progress_hook] if progress_hook else [],
-        'quiet': True,
+        'outtmpl': os.path.join(UPLOAD_FOLDER, '%(title)s.%(ext)s'),
+        'format': 'bestvideo+bestaudio/best',
     }
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
-    except Exception as e:
-        print("خطأ في التحميل: ", e)  # سجل أي خطأ يحدث أثناء التحميل
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info_dict = ydl.extract_info(url, download=True)
+        return ydl.prepare_filename(info_dict)  # إرجاع اسم الملف الكامل
 
-# دالة لتحديث حالة التحميل
-def progress_hook(d):
-    if d['status'] == 'finished':
-        file_name = d['info_dict']['title'] + '.' + d['info_dict']['ext']
-        print(f"التحميل انتهى. الملف: {file_name}")  # سجل اسم الملف عند الانتهاء من التحميل
-        # إرسال رابط التحميل إلى العميل بعد الانتهاء من التحميل
-        download_url = f"/download_file/{file_name}"  # تحديد رابط التنزيل
-        socketio.emit('download_status', {'status': 'تم التحميل بنجاح', 'file_url': download_url})
-    elif d['status'] == 'downloading':
-        # إرسال التحديثات الخاصة بحالة التحميل
-        socketio.emit('download_status', {'status': f"جاري التحميل: {d['_percent_str']}"})
 
-# الصفحة الرئيسية
+# دالة لحساب الحجم الإجمالي للمجلد
+def get_folder_size(folder):
+    total_size = 0
+    for dirpath, dirnames, filenames in os.walk(folder):
+        for f in filenames:
+            fp = os.path.join(dirpath, f)
+            total_size += os.path.getsize(fp)
+    return total_size
+
+
+# وظيفة لحذف الملفات بعد 24 ساعة
+def auto_cleanup():
+    while True:
+        now = time.time()
+        for filename in os.listdir(UPLOAD_FOLDER):
+            filepath = os.path.join(UPLOAD_FOLDER, filename)
+            if os.stat(filepath).st_mtime < now - 86400:  # 24 ساعة
+                os.remove(filepath)
+        if get_folder_size(UPLOAD_FOLDER) > MAX_SIZE:
+            shutil.rmtree(UPLOAD_FOLDER)
+            os.makedirs(UPLOAD_FOLDER)
+        time.sleep(3600)  # تحقق كل ساعة
+
+
+# بدء عملية الحذف التلقائي في الخلفية
+Thread(target=auto_cleanup, daemon=True).start()
+
+
 @app.route('/')
 def index():
     return render_template('index.html')
 
-# رابط لتحميل الفيديو
+
 @app.route('/download', methods=['POST'])
 def download():
-    data = request.get_json()
-    url = data['url']
-    # بدء التحميل في الخلفية داخل سياق التطبيق
-    with app.app_context():  # تأكد من أن التحميل يحدث داخل سياق التطبيق
-        socketio.start_background_task(download_video, url, progress_hook)
-    return jsonify({'status': 'started'}), 200
+    video_url = request.form['url']
 
-# تنزيل الملف بعد التحميل
-@app.route('/download_file/<filename>')
-def download_file(filename):
-    file_path = os.path.join(DOWNLOAD_FOLDER, filename)
-    return send_from_directory(DOWNLOAD_FOLDER, filename, as_attachment=True)
+    # تحميل الفيديو بشكل متزامن وإرجاع اسم الملف
+    try:
+        filename = download_video(video_url)
+        return jsonify({"message": "تم تحميل الفيديو بنجاح", "filename": os.path.basename(filename)})
+    except Exception as e:
+        return jsonify({"message": "فشل تحميل الفيديو", "error": str(e)})
 
-# تشغيل السيرفر
-if __name__ == '__main__':
-    socketio.run(app, debug=False, use_reloader=False)
+
+@app.route('/downloads/<filename>')
+def get_file(filename):
+    return send_from_directory(UPLOAD_FOLDER, filename)
+
+
+if __name__ == "__main__":
+    app.run(debug=True)

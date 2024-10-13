@@ -4,50 +4,73 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>تحميل الفيديو</title>
-    <script src="https://cdn.socket.io/4.4.1/socket.io.min.js"></script>
+    <style>
+        /* إضافة بعض التنسيقات الأساسية */
+        #status {
+            font-weight: bold;
+            margin-top: 10px;
+        }
+        #loading {
+            display: none;
+            color: blue;
+        }
+        #success {
+            display: none;
+            color: green;
+        }
+        #error {
+            display: none;
+            color: red;
+        }
+    </style>
 </head>
 <body>
-    <h1>تحميل الفيديو</h1>
-    <input type="text" id="url" placeholder="أدخل رابط الفيديو">
-    <button onclick="downloadVideo()">تحميل الفيديو</button>
+    <h1>أدخل رابط الفيديو لتحميله</h1>
+    <form id="downloadForm">
+        <label for="url">رابط الفيديو:</label>
+        <input type="text" id="url" name="url" required>
+        <button type="submit">تحميل</button>
+    </form>
     <p id="status"></p>
-    <div id="download-link"></div>
+    <p id="loading">جاري تحميل الفيديو، الرجاء الانتظار...</p>
+    <p id="success">تم تحميل الفيديو بنجاح! <a id="downloadLink" href="#" download>تحميل الفيديو</a></p>
+    <p id="error">حدث خطأ أثناء التحميل. حاول مرة أخرى.</p>
 
     <script>
-        // الاتصال بـ Socket.IO
-        const socket = io.connect('http://localhost:5001'); // تأكد من استخدام البورت الصحيح
+        document.getElementById('downloadForm').onsubmit = async function(e) {
+            e.preventDefault();
 
-        // تلقي التحديثات من السيرفر
-        socket.on('download_status', function(data) {
-            document.getElementById("status").innerHTML = data.status;
-            if (data.file_url) {
-                const downloadLink = `<a href="${data.file_url}" download>تحميل الملف</a>`;
-                document.getElementById("download-link").innerHTML = downloadLink;
-            }
-        });
+            // إخفاء الرسائل السابقة
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('success').style.display = 'none';
+            document.getElementById('error').style.display = 'none';
 
-        // إرسال الطلب لتحميل الفيديو
-        function downloadVideo() {
-            const url = document.getElementById("url").value;
-            if (url) {
-                fetch('/download', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ 'url': url })
-                })
-                .then(response => response.json())
-                .then(data => {
-                    console.log('تم إرسال الطلب');
-                })
-                .catch(error => {
-                    console.error('خطأ في إرسال الطلب:', error);
-                });
+            let url = document.getElementById('url').value;
+            let response = await fetch('/download', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: `url=${encodeURIComponent(url)}`
+            });
+            let result = await response.json();
+
+            document.getElementById('loading').style.display = 'none'; // إخفاء حالة "جاري التحميل"
+
+            if (result.filename) {
+                document.getElementById('success').style.display = 'block';
+
+                // إعداد الرابط للتحميل المباشر
+                let downloadLink = document.getElementById('downloadLink');
+                downloadLink.href = `/downloads/${result.filename}`;
+                downloadLink.download = result.filename;  // تأكيد خاصية التحميل
+
+                // تفعيل التنزيل التلقائي عند التحميل
+                downloadLink.click();
             } else {
-                alert("الرجاء إدخال رابط الفيديو");
+                document.getElementById('error').style.display = 'block';
             }
-        }
+        };
     </script>
 </body>
 </html>
