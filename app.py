@@ -15,9 +15,11 @@ if not os.path.exists(UPLOAD_FOLDER):
 
 # وظيفة لتحميل الفيديو
 def download_video(url):
+    # تعديل إعدادات yt-dlp لاختيار أفضل تنسيق فيديو لا يتطلب ffmpeg
     ydl_opts = {
         'outtmpl': os.path.join(UPLOAD_FOLDER, '%(title)s.%(ext)s'),
-        'format': 'bestvideo+bestaudio/best',
+        'format': 'best',  # اختيار أفضل تنسيق يحتوي على الفيديو والصوت
+        'noplaylist': True,  # تجنب تحميل قوائم التشغيل
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info_dict = ydl.extract_info(url, download=True)
